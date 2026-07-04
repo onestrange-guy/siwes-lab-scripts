@@ -226,7 +226,7 @@ def collect_and_display():
     print_header("DNS SERVERS")
     if dns:
         for server in dns:
-            print(f"  {server},{server}")
+            print(f"  {server}")
     else:
         print("  WARNING: No DNS servers configured")
         print("  Possible causes:")
