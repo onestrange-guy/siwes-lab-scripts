@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 # ============================================================
 # Network Information Collector — Cross-Platform
-# Author: Israel
-# Date: 23 June 2026
 # Description: Detects OS and collects IP, Gateway, and DNS
 #              information. Works on Windows and Linux.
 #              Handles errors gracefully without crashing.
@@ -175,8 +173,6 @@ def collect_and_display():
 
     # ── Banner ──────────────────────────────────────────────
     print_banner("NETWORK INFORMATION REPORT")
-    print(f"  Script Author : Israel")
-    print(f"  Date          : 18 June 2026")
     print(f"  Python Version: {sys.version.split()[0]}")
 
     # ── OS Detection ────────────────────────────────────────
@@ -230,7 +226,7 @@ def collect_and_display():
     print_header("DNS SERVERS")
     if dns:
         for server in dns:
-            print(f"  {server}")
+            print(f"  {server},{server}")
     else:
         print("  WARNING: No DNS servers configured")
         print("  Possible causes:")
