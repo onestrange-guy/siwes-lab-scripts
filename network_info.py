@@ -97,6 +97,23 @@ def get_windows_dns():
         return servers
     return []
 
+function Test-Loopback {
+    Write-Host "`n--- Testing Loopback (127.0.0.1) ---"
+    try {
+        $result = Test-Connection -ComputerName 127.0.0.1 -Count 1 -Quiet
+        if ($result) {
+            Write-Host "✓ Loopback: PASS - TCP/IP stack working" -ForegroundColor Green
+            return $true
+        } else {
+            Write-Host "✗ Loopback: FAIL - Network stack issue" -ForegroundColor Red
+            return $false
+        }
+    } catch {
+        Write-Host "✗ Loopback: FAIL - Error testing connection" -ForegroundColor Red
+        return $false
+    }
+}
+
 # ============================================================
 # LINUX FUNCTIONS (Bash)
 # ============================================================
@@ -142,6 +159,18 @@ def get_linux_dns():
         return output.splitlines()
 
     return []
+
+test_loopback() {
+    echo ""
+    echo "--- Testing Loopback (127.0.0.1) ---"
+    if ping -c 1 127.0.0.1 > /dev/null 2>&1; then
+        echo -e "\e[32m✓ Loopback: PASS - TCP/IP stack working\e[0m"
+        return 0
+    else
+        echo -e "\e[31m✗ Loopback: FAIL - Network stack issue\e[0m"
+        return 1
+    fi
+}
 
 # ============================================================
 # HOSTNAME (works on both OS)
