@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import platform
 import subprocess
 import socket
@@ -115,6 +116,54 @@ def test_gateway(gateway_ip):
 
     except Exception:
         return False
+
+
+# ============================================================
+# DNS SERVER CONNECTIVITY TEST (cross-platform)
+# ============================================================
+
+def test_dns_servers(dns_list, os_name):
+    """
+    Ping each configured DNS server individually.
+    dns_list : list of DNS server IP strings (auto-detected by caller)
+    os_name  : 'windows' or 'linux'
+    Returns  : (overall_result, per_server_results)
+                overall_result     — 'PASS', 'PARTIAL', 'FAIL', or 'SKIP'
+                per_server_results — list of (ip, reachable: bool) tuples
+    """
+    if not dns_list:
+        return "SKIP", []
+
+    per_server = []
+    for dns_ip in dns_list:
+        try:
+            if os_name == "windows":
+                cmd = f"ping -n 1 -w 2000 {dns_ip}"
+            else:
+                cmd = f"ping -c 1 -W 2 {dns_ip}"
+
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            per_server.append((dns_ip, result.returncode == 0))
+        except Exception:
+            per_server.append((dns_ip, False))
+
+    passed  = sum(1 for _, ok in per_server if ok)
+    total   = len(per_server)
+
+    if passed == total:
+        overall = "PASS"
+    elif passed == 0:
+        overall = "FAIL"
+    else:
+        overall = "PARTIAL"
+
+    return overall, per_server
 
 
 # ============================================================
@@ -238,7 +287,6 @@ def detect_os():
 def collect_and_display():
     """Main function — detects OS, collects data, displays results"""
 
-
     # ── OS Detection ────────────────────────────────────────
     detected_os = detect_os()
     os_display = platform.system() + " " + platform.release()
@@ -327,21 +375,55 @@ def collect_and_display():
         print("    - DNS not set in network adapter properties")
         print("    - /etc/resolv.conf missing or empty (Linux)")
 
+    # ── DNS Server Connectivity Test ─────────────────────────
+    print_header("DNS SERVER TEST")
+    dns_overall, dns_results = test_dns_servers(dns, detected_os)
+
+    if dns_overall == "SKIP":
+        print("  [SKIP] No DNS servers detected — cannot test reachability.")
+        dns_reach_status = "SKIP"
+    else:
+        for dns_ip, reachable in dns_results:
+            status = "PASS" if reachable else "FAIL"
+            print(f"  Testing : {dns_ip}")
+            if reachable:
+                print(f"  [PASS] {dns_ip} is reachable.")
+            else:
+                print(f"  [FAIL] {dns_ip} did not reply.")
+
+        print("")
+        if dns_overall == "PASS":
+            print("  Result : ALL DNS servers reachable.")
+            dns_reach_status = "PASS"
+        elif dns_overall == "PARTIAL":
+            print("  Result : PARTIAL — some DNS servers unreachable.")
+            print("  Note   : Name resolution may still work via reachable servers.")
+            dns_reach_status = "PARTIAL"
+        else:
+            print("  Result : ALL DNS servers unreachable.")
+            print("  Possible causes:")
+            print("    - DNS server IP is wrong")
+            print("    - Firewall blocking UDP/TCP port 53")
+            print("    - DNS server is down")
+            dns_reach_status = "FAIL"
+
     # ── Diagnostic Summary ───────────────────────────────────
     print_header("DIAGNOSTIC SUMMARY")
-    loopback_status = "PASS" if loopback_ok  else "FAIL"
-    ip_status       = "PASS" if ips          else "FAIL"
-    gateway_status  = "PASS" if gateway      else "WARNING"
-    gw_reach_status = "PASS" if gateway_ok   else ("SKIP" if not gateway else "FAIL")
-    dns_status      = "PASS" if dns          else "WARNING"
+    loopback_status  = "PASS"    if loopback_ok        else "FAIL"
+    ip_status        = "PASS"    if ips                else "FAIL"
+    gateway_status   = "PASS"    if gateway            else "WARNING"
+    gw_reach_status  = "PASS"    if gateway_ok         else ("SKIP" if not gateway else "FAIL")
+    dns_cfg_status   = "PASS"    if dns                else "WARNING"
 
     print(f"  Loopback (TCP/IP stack)  : {loopback_status}")
     print(f"  Local IP assignment      : {ip_status}")
     print(f"  Default Gateway detected : {gateway_status}")
     print(f"  Gateway reachability     : {gw_reach_status}")
-    print(f"  DNS Servers              : {dns_status}")
+    print(f"  DNS Servers configured   : {dns_cfg_status}")
+    print(f"  DNS Server reachability  : {dns_reach_status}")
 
-    all_ok = loopback_ok and bool(ips) and bool(gateway) and gateway_ok and bool(dns)
+    all_ok = (loopback_ok and bool(ips) and bool(gateway) and gateway_ok
+              and bool(dns) and dns_reach_status == "PASS")
     print("")
     if all_ok:
         print("  Status: ALL CHECKS PASSED")
