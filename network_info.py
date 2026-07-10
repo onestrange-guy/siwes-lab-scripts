@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-# ============================================================
-# Network Information Collector — Cross-Platform
-# Description: Detects OS and collects IP, Gateway, and DNS
-#              information. Works on Windows and Linux.
-#              Handles errors gracefully without crashing.
-# ============================================================
-
 import platform
 import subprocess
 import socket
@@ -49,6 +42,80 @@ def run_command(command, shell=True):
         return None
     except Exception:
         return None
+
+# ============================================================
+# LOOPBACK TEST (cross-platform)
+# ============================================================
+
+def test_loopback():
+    """
+    Test TCP/IP stack by pinging the loopback address (127.0.0.1).
+    This never touches a physical NIC or cable — it tests only
+    whether the OS network stack is loaded and functional.
+    Returns True (pass) or False (fail).
+    """
+    import subprocess
+
+    os_name = detect_os()
+
+    try:
+        if os_name == "windows":
+            # -n 1 = send 1 packet, -w 1000 = 1 second timeout
+            cmd = "ping -n 1 -w 1000 127.0.0.1"
+        else:
+            # -c 1 = send 1 packet, -W 1 = 1 second timeout
+            cmd = "ping -c 1 -W 1 127.0.0.1"
+
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        return result.returncode == 0
+
+    except Exception:
+        return False
+
+
+# ============================================================
+# GATEWAY TEST (cross-platform)
+# ============================================================
+
+def test_gateway(gateway_ip):
+    """
+    Test reachability of the default gateway by pinging it.
+    Gateway IP is auto-detected by the caller (get_windows_gateway
+    or get_linux_gateway) — never hardcoded here.
+    Returns True (pass) or False (fail).
+    If no gateway IP is supplied, returns False immediately.
+    """
+    if not gateway_ip:
+        return False
+
+    os_name = detect_os()
+
+    try:
+        if os_name == "windows":
+            # -n 1 = one packet, -w 2000 = 2 second timeout
+            cmd = f"ping -n 1 -w 2000 {gateway_ip}"
+        else:
+            # -c 1 = one packet, -W 2 = 2 second timeout
+            cmd = f"ping -c 1 -W 2 {gateway_ip}"
+
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        return result.returncode == 0
+
+    except Exception:
+        return False
+
 
 # ============================================================
 # WINDOWS FUNCTIONS (PowerShell)
@@ -97,23 +164,6 @@ def get_windows_dns():
         return servers
     return []
 
-function Test-Loopback {
-    Write-Host "`n--- Testing Loopback (127.0.0.1) ---"
-    try {
-        $result = Test-Connection -ComputerName 127.0.0.1 -Count 1 -Quiet
-        if ($result) {
-            Write-Host "✓ Loopback: PASS - TCP/IP stack working" -ForegroundColor Green
-            return $true
-        } else {
-            Write-Host "✗ Loopback: FAIL - Network stack issue" -ForegroundColor Red
-            return $false
-        }
-    } catch {
-        Write-Host "✗ Loopback: FAIL - Error testing connection" -ForegroundColor Red
-        return $false
-    }
-}
-
 # ============================================================
 # LINUX FUNCTIONS (Bash)
 # ============================================================
@@ -160,18 +210,6 @@ def get_linux_dns():
 
     return []
 
-test_loopback() {
-    echo ""
-    echo "--- Testing Loopback (127.0.0.1) ---"
-    if ping -c 1 127.0.0.1 > /dev/null 2>&1; then
-        echo -e "\e[32m✓ Loopback: PASS - TCP/IP stack working\e[0m"
-        return 0
-    else
-        echo -e "\e[31m✗ Loopback: FAIL - Network stack issue\e[0m"
-        return 1
-    fi
-}
-
 # ============================================================
 # HOSTNAME (works on both OS)
 # ============================================================
@@ -200,9 +238,6 @@ def detect_os():
 def collect_and_display():
     """Main function — detects OS, collects data, displays results"""
 
-    # ── Banner ──────────────────────────────────────────────
-    print_banner("NETWORK INFORMATION REPORT")
-    print(f"  Python Version: {sys.version.split()[0]}")
 
     # ── OS Detection ────────────────────────────────────────
     detected_os = detect_os()
@@ -212,6 +247,18 @@ def collect_and_display():
     print(f"  Hostname        : {get_hostname()}")
     print(f"  Operating System: {os_display}")
     print(f"  Detected OS     : {detected_os.upper()}")
+
+    # ── Loopback Test ────────────────────────────────────────
+    print_header("LOOPBACK TEST")
+    loopback_ok = test_loopback()
+    if loopback_ok:
+        print("  [PASS] 127.0.0.1 replied. TCP/IP stack is functional.")
+    else:
+        print("  [FAIL] 127.0.0.1 did not reply. Network stack may be broken.")
+        print("  Possible causes:")
+        print("    - NIC driver not loaded or corrupted")
+        print("    - TCP/IP protocol unbound from adapter (Windows)")
+        print("    - Loopback interface is DOWN (Linux: run 'ip link set lo up')")
 
     # ── Collect data based on OS ─────────────────────────────
     if detected_os == "windows":
@@ -251,6 +298,24 @@ def collect_and_display():
         print("    - NAT adapter not receiving DHCP lease")
         print("    - Network adapter is disabled")
 
+    # ── Gateway Reachability Test ─────────────────────────────
+    print_header("GATEWAY TEST")
+    if not gateway:
+        print("  [SKIP] No gateway IP detected — cannot test reachability.")
+        gateway_ok = False
+    else:
+        print(f"  Gateway IP : {gateway}")
+        gateway_ok = test_gateway(gateway)
+        if gateway_ok:
+            print(f"  [PASS] {gateway} replied. Local network is reachable.")
+        else:
+            print(f"  [FAIL] {gateway} did not reply.")
+            print("  Possible causes:")
+            print("    - Wrong gateway IP configured")
+            print("    - Subnet mask puts you on a different network than the gateway")
+            print("    - Gateway device is down or offline")
+            print("    - Firewall on gateway is blocking ICMP")
+
     # ── DNS Servers ──────────────────────────────────────────
     print_header("DNS SERVERS")
     if dns:
@@ -261,6 +326,30 @@ def collect_and_display():
         print("  Possible causes:")
         print("    - DNS not set in network adapter properties")
         print("    - /etc/resolv.conf missing or empty (Linux)")
+
+    # ── Diagnostic Summary ───────────────────────────────────
+    print_header("DIAGNOSTIC SUMMARY")
+    loopback_status = "PASS" if loopback_ok  else "FAIL"
+    ip_status       = "PASS" if ips          else "FAIL"
+    gateway_status  = "PASS" if gateway      else "WARNING"
+    gw_reach_status = "PASS" if gateway_ok   else ("SKIP" if not gateway else "FAIL")
+    dns_status      = "PASS" if dns          else "WARNING"
+
+    print(f"  Loopback (TCP/IP stack)  : {loopback_status}")
+    print(f"  Local IP assignment      : {ip_status}")
+    print(f"  Default Gateway detected : {gateway_status}")
+    print(f"  Gateway reachability     : {gw_reach_status}")
+    print(f"  DNS Servers              : {dns_status}")
+
+    all_ok = loopback_ok and bool(ips) and bool(gateway) and gateway_ok and bool(dns)
+    print("")
+    if all_ok:
+        print("  Status: ALL CHECKS PASSED")
+        print("  Note  : Presence of values does not confirm correct values.")
+        print("          Verify IP/gateway match expected lab configuration.")
+    else:
+        print("  Status: ISSUES DETECTED")
+        print("  Review the warnings above for details.")
 
     # ── Footer ───────────────────────────────────────────────
     print("")
